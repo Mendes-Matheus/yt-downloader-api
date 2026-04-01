@@ -36,7 +36,8 @@ class BaseDownloadService:
                 "O YouTube exigiu autenticacao para liberar este video. "
                 "Nao foi encontrado cookie valido de youtube.com em '/app/cookies.txt'. "
                 "Gere o arquivo de cookies na raiz do projeto com './update_cookies.sh' "
-                "ou configure YT_DLP_COOKIEFILE apontando para um arquivo Netscape valido."
+                "ou configure YT_DLP_COOKIEFILE (arquivo) / YT_DLP_COOKIES_B64 (base64) "
+                "apontando para cookies Netscape validos."
             )
 
         if any(marker in message_lower for marker in invalid_cookie_markers):

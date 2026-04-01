@@ -123,6 +123,7 @@ async def startup_event():
         logger.info('"Serviço iniciado com token interno configurado"')
 
     logger.info('"Cookies válidos: %s"', config.has_valid_cookie_file())
+    logger.info('"Fonte de cookies: %s"', config.describe_cookie_source())
     logger.info('"Origins permitidas: %s"', config.allowed_origins)
 
 

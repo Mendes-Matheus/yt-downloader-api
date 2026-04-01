@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import random
 import os
+import base64
 from typing import Dict
 
 class DownloadConfig:
@@ -61,6 +62,23 @@ class DownloadConfig:
 
     def _resolve_cookie_file(self) -> Path | None:
         cookie_file = os.getenv("YT_DLP_COOKIEFILE")
+        inline_cookie_path = self._resolve_inline_cookie_file()
+
+        if cookie_file:
+            candidate = Path(cookie_file).expanduser()
+            if not candidate.is_absolute():
+                candidate = self.project_root / candidate
+
+            if candidate.exists():
+                return candidate
+
+            if inline_cookie_path:
+                return inline_cookie_path
+
+            return candidate
+
+        if inline_cookie_path:
+            return inline_cookie_path
 
         if not cookie_file:
             docker_cookie_file = Path("/app/cookies.txt")
@@ -69,10 +87,31 @@ class DownloadConfig:
             local_cookie_file = self.project_root / "cookies.txt"
             return local_cookie_file
 
-        candidate = Path(cookie_file).expanduser()
-        if not candidate.is_absolute():
-            candidate = self.project_root / candidate
-        return candidate
+        return None
+
+    def _resolve_inline_cookie_file(self) -> Path | None:
+        cookie_b64 = os.getenv("YT_DLP_COOKIES_B64", "").strip()
+        cookie_raw = os.getenv("YT_DLP_COOKIES_RAW", "").strip()
+        if not cookie_b64 and not cookie_raw:
+            return None
+
+        try:
+            if cookie_b64:
+                decoded_bytes = base64.b64decode(cookie_b64, validate=True)
+                cookie_text = decoded_bytes.decode("utf-8", errors="ignore")
+            else:
+                # Permite enviar via env com quebras escapadas (\n)
+                cookie_text = cookie_raw.replace("\\n", "\n")
+        except Exception:
+            return None
+
+        if not cookie_text.strip():
+            return None
+
+        temp_cookie_file = self.temp_dir / "cookies.from_env.txt"
+        temp_cookie_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_cookie_file.write_text(cookie_text, encoding="utf-8")
+        return temp_cookie_file
 
     def has_valid_cookie_file(self) -> bool:
         if not self.cookie_file or not self.cookie_file.exists() or self.cookie_file.stat().st_size <= 0:
