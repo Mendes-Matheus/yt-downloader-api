@@ -24,6 +24,25 @@ logging.basicConfig(
 )
 logger = get_logger(__name__)
 
+
+class NormalizePathMiddleware:
+    """Normaliza múltiplas barras no path antes do roteamento."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            raw_path = scope.get("path", "")
+            if "//" in raw_path:
+                new_path = re.sub(r"/{2,}", "/", raw_path)
+                logger.info('"normalize_path":"%s -> %s"', raw_path, new_path)
+                scope = dict(scope)
+                scope["path"] = new_path
+                scope["raw_path"] = new_path.encode("utf-8")
+
+        await self.app(scope, receive, send)
+
 # ── Config ────────────────────────────────────────────────────────────────────
 config = DownloadConfig()
 
@@ -35,16 +54,6 @@ app = FastAPI(
     docs_url="/docs" if not config.internal_token else None,
     redoc_url=None,
 )
-
-# ── Normaliza paths com // (ex.: //download/audio) ────────────────────────────
-@app.middleware("http")
-async def normalize_double_slashes(request: Request, call_next):
-    if "//" in request.url.path:
-        new_path = re.sub(r"/{2,}", "/", request.url.path)
-        scope = dict(request.scope)
-        scope["path"] = new_path
-        request = Request(scope, request.receive)
-    return await call_next(request)
 
 # ── CORS: apenas o domínio Vercel pode chamar ─────────────────────────────────
 app.add_middleware(
@@ -61,11 +70,35 @@ app.add_middleware(RateLimitMiddleware, max_requests=10, window_seconds=60)
 # ── Autenticação token interno (protege /download/* e /info/*) ────────────────
 app.add_middleware(InternalTokenMiddleware, token=config.internal_token)
 
+# ── Normaliza paths com // (ex.: //download/audio) ────────────────────────────
+# Adicionado por último para executar primeiro na cadeia de middlewares.
+app.add_middleware(NormalizePathMiddleware)
+
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)   # /health e /ready — sem autenticação
 app.include_router(video.router)    # /download/video
 app.include_router(audio.router)    # /download/audio
 app.include_router(info.router)     # /info/video
+
+# Compatibilidade para clients que enviam path com barra dupla no início.
+app.add_api_route(
+    "//download/audio",
+    audio.download_audio,
+    methods=["POST"],
+    include_in_schema=False,
+)
+app.add_api_route(
+    "//download/video",
+    video.download_video,
+    methods=["POST"],
+    include_in_schema=False,
+)
+app.add_api_route(
+    "//info/video",
+    info.obter_info_video,
+    methods=["GET"],
+    include_in_schema=False,
+)
 
 
 @app.exception_handler(Exception)
