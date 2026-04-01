@@ -1,4 +1,5 @@
 import hashlib
+import mimetypes
 import os
 
 from fastapi import APIRouter, HTTPException, Request
@@ -38,7 +39,7 @@ async def download_video(request_body: DownloadRequest, request: Request):
             return FileResponse(
                 path=resultado["filepath"],
                 filename=resultado["filename"],
-                media_type="video/mp4",
+                media_type=mimetypes.guess_type(resultado["filename"])[0] or "application/octet-stream",
                 headers={
                     "Content-Disposition": f'attachment; filename="{resultado["filename"]}"'
                 },

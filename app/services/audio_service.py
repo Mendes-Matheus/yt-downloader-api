@@ -29,12 +29,24 @@ class AudioService(BaseDownloadService):
             return quality_value
         return "192"
 
-    def _configurar_opcoes_audio(self, pasta: Path, qualidade_audio: str = "192") -> Dict:
+    def _configurar_opcoes_audio(
+        self,
+        pasta: Path,
+        qualidade_audio: str = "192",
+        *,
+        player_clients: list[str] | None = None,
+        use_cookies: bool = True,
+        format_selector: str = "bestaudio/best",
+    ) -> Dict:
         """Configura opções para download de áudio"""
         bitrate = self._normalizar_qualidade_audio(qualidade_audio)
-        opcoes = self.config.get_base_ydl_opts(pasta)
+        opcoes = self.config.get_base_ydl_opts(
+            pasta,
+            player_clients=player_clients,
+            use_cookies=use_cookies,
+        )
         opcoes.update({
-            'format': 'bestaudio/best',
+            'format': format_selector,
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -43,21 +55,93 @@ class AudioService(BaseDownloadService):
         })
         return opcoes
 
+    def _is_http_403_error(self, error: Exception) -> bool:
+        message = str(error).lower()
+        markers = (
+            "http error 403",
+            "403 forbidden",
+            "unable to download video data",
+        )
+        return any(marker in message for marker in markers)
+
+    def _build_audio_attempts(self) -> list[Dict[str, Any]]:
+        default_clients = self.config.player_clients
+        fallback_clients = self.config.player_clients_fallback
+        has_cookies = self.config.has_valid_cookie_file()
+
+        attempts = [
+            {
+                "player_clients": default_clients,
+                "use_cookies": True,
+                "format_selector": "bestaudio/best",
+            }
+        ]
+
+        if fallback_clients != default_clients:
+            attempts.append(
+                {
+                    "player_clients": fallback_clients,
+                    "use_cookies": True,
+                    "format_selector": "bestaudio/best",
+                }
+            )
+
+        if has_cookies:
+            attempts.append(
+                {
+                    "player_clients": fallback_clients,
+                    "use_cookies": False,
+                    "format_selector": "bestaudio/best",
+                }
+            )
+
+        attempts.append(
+            {
+                "player_clients": fallback_clients,
+                "use_cookies": False if has_cookies else True,
+                "format_selector": "18/bestaudio/best",
+            }
+        )
+
+        deduped_attempts: list[Dict[str, Any]] = []
+        seen: set[tuple[tuple[str, ...], bool, str]] = set()
+        for attempt in attempts:
+            key = (
+                tuple(attempt["player_clients"]),
+                attempt["use_cookies"],
+                attempt["format_selector"],
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped_attempts.append(attempt)
+
+        return deduped_attempts
+
     def baixar_audio_temp(self, url: str, qualidade_audio: str = "192") -> Dict[str, Any]:
         """Baixa áudio para arquivo temporário"""
         self.audio_temp_dir.mkdir(exist_ok=True)
 
         temp_basename = f"temp_{int(time.time())}"
         temp_mp3_path = self.audio_temp_dir / f"{temp_basename}.mp3"
+        last_error: Exception | None = None
+        attempts = self._build_audio_attempts()
 
-        opcoes = self._configurar_opcoes_audio(self.audio_temp_dir, qualidade_audio)
-        opcoes['outtmpl'] = str(self.audio_temp_dir / f"{temp_basename}.%(ext)s")
-        
-        try:
-            time.sleep(random.uniform(1, 3))
-            
-            with yt_dlp.YoutubeDL(opcoes) as ydl:
-                info = ydl.extract_info(url, download=True)
+        time.sleep(random.uniform(1, 2))
+
+        for attempt_index, attempt in enumerate(attempts):
+            opcoes = self._configurar_opcoes_audio(
+                self.audio_temp_dir,
+                qualidade_audio,
+                player_clients=attempt["player_clients"],
+                use_cookies=attempt["use_cookies"],
+                format_selector=attempt["format_selector"],
+            )
+            opcoes['outtmpl'] = str(self.audio_temp_dir / f"{temp_basename}.%(ext)s")
+
+            try:
+                with yt_dlp.YoutubeDL(opcoes) as ydl:
+                    info = ydl.extract_info(url, download=True)
 
                 if not temp_mp3_path.exists():
                     raise Exception("Arquivo MP3 temporario nao foi criado")
@@ -81,10 +165,20 @@ class AudioService(BaseDownloadService):
                     'titulo': info['title'],
                     'tamanho': final_filepath.stat().st_size
                 }
-        except Exception as e:
-            if temp_mp3_path.exists():
-                try:
-                    temp_mp3_path.unlink()
-                except Exception:
-                    pass
-            raise Exception(f"Erro no download: {self.formatar_erro_download(e)}")
+            except Exception as error:
+                last_error = error
+                if temp_mp3_path.exists():
+                    try:
+                        temp_mp3_path.unlink()
+                    except Exception:
+                        pass
+
+                has_next_attempt = attempt_index < (len(attempts) - 1)
+                if has_next_attempt and self._is_http_403_error(error):
+                    time.sleep(random.uniform(0.4, 1.2))
+                    continue
+                break
+
+        if last_error:
+            raise Exception(f"Erro no download: {self.formatar_erro_download(last_error)}")
+        raise Exception("Erro no download: falha inesperada durante o download de áudio.")

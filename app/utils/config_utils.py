@@ -22,7 +22,14 @@ class DownloadConfig:
         self.js_runtime = (os.getenv("YT_DLP_JS_RUNTIME", "node").strip().lower() or "node")
         self.enable_remote_ejs = os.getenv("YT_DLP_REMOTE_EJS", "1").strip() not in {"0", "false", "False"}
         self.visitor_data = os.getenv("YT_DLP_VISITOR_DATA", "").strip()
-        self.player_clients = self._parse_csv_env("YT_DLP_PLAYER_CLIENTS", ["web"])
+        self.player_clients = self._parse_csv_env(
+            "YT_DLP_PLAYER_CLIENTS",
+            ["ios", "mweb", "tv", "web"],
+        )
+        self.player_clients_fallback = self._parse_csv_env(
+            "YT_DLP_PLAYER_CLIENTS_FALLBACK",
+            ["mweb", "tv", "ios", "web"],
+        )
         self.player_skip = self._parse_csv_env("YT_DLP_PLAYER_SKIP", ["webpage"])
         self.sleep_interval_requests = self._parse_float_env("YT_DLP_SLEEP_INTERVAL_REQUESTS", 0.5)
         self.max_sleep_interval_requests = self._parse_float_env("YT_DLP_MAX_SLEEP_INTERVAL_REQUESTS", 1.5)
@@ -134,7 +141,27 @@ class DownloadConfig:
             return f"arquivo de cookies em '{self.cookie_file}'"
         return "nenhuma fonte de cookies configurada"
 
-    def get_base_ydl_opts(self, pasta: Path) -> Dict:
+    def _build_youtube_extractor_args(
+        self,
+        player_clients: list[str] | None = None,
+        player_skip: list[str] | None = None,
+    ) -> Dict:
+        youtube_args: Dict[str, list[str]] = {
+            'player_client': player_clients or self.player_clients,
+            'player_skip': player_skip or self.player_skip,
+        }
+        if self.visitor_data:
+            youtube_args['visitor_data'] = [self.visitor_data]
+        return {'youtube': youtube_args}
+
+    def get_base_ydl_opts(
+        self,
+        pasta: Path,
+        *,
+        player_clients: list[str] | None = None,
+        player_skip: list[str] | None = None,
+        use_cookies: bool = True,
+    ) -> Dict:
         opts = {
             'outtmpl': str(pasta / '%(title)s.%(ext)s'),
             'merge_output_format': 'mp4',
@@ -157,21 +184,13 @@ class DownloadConfig:
             'js_runtimes': {self.js_runtime: {}},
             'sleep_interval_requests': self.sleep_interval_requests,
             'max_sleep_interval_requests': self.max_sleep_interval_requests,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': self.player_clients,
-                    'player_skip': self.player_skip,
-                }
-            },
+            'extractor_args': self._build_youtube_extractor_args(player_clients, player_skip),
         }
 
         if self.enable_remote_ejs:
             opts['remote_components'] = {'ejs:github'}
 
-        if self.visitor_data:
-            opts['extractor_args']['youtube']['visitor_data'] = [self.visitor_data]
-
-        if self.has_valid_cookie_file():
+        if use_cookies and self.has_valid_cookie_file():
             opts['cookiefile'] = str(self.cookie_file)
 
         return opts
