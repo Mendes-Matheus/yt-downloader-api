@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+downloads/
+cookies.txt
+*.txt.bak
+.idea/
+.git/
+README.md

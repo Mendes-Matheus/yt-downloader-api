@@ -1,0 +1,41 @@
+services:
+  downloader:
+    build: .
+    ports:
+      - "8000:8000"
+
+    # ── Volumes persistentes ──────────────────────────────────────────────────
+    volumes:
+      # cookies.txt gerado pelo update_cookies.sh no host
+      - ./cookies.txt:/app/cookies.txt:ro
+      # downloads temporários (evita encher a raiz do container)
+      - yt_tmp:/tmp/yt_downloader
+
+    # ── Variáveis de ambiente ─────────────────────────────────────────────────
+    # Copie .env.example → .env e preencha os valores reais
+    env_file:
+      - .env
+
+    environment:
+      - PYTHONPATH=/app
+
+    # ── Reinício automático ───────────────────────────────────────────────────
+    restart: unless-stopped
+
+    # ── Healthcheck ───────────────────────────────────────────────────────────
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    # ── Recursos (ajuste conforme o host) ─────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+
+volumes:
+  yt_tmp:
