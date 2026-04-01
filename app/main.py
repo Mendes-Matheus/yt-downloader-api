@@ -1,5 +1,6 @@
 import sys
 import logging
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -34,6 +35,16 @@ app = FastAPI(
     docs_url="/docs" if not config.internal_token else None,
     redoc_url=None,
 )
+
+# ── Normaliza paths com // (ex.: //download/audio) ────────────────────────────
+@app.middleware("http")
+async def normalize_double_slashes(request: Request, call_next):
+    if "//" in request.url.path:
+        new_path = re.sub(r"/{2,}", "/", request.url.path)
+        scope = dict(request.scope)
+        scope["path"] = new_path
+        request = Request(scope, request.receive)
+    return await call_next(request)
 
 # ── CORS: apenas o domínio Vercel pode chamar ─────────────────────────────────
 app.add_middleware(
