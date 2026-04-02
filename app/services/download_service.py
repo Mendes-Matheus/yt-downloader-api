@@ -1,3 +1,6 @@
+import random
+import time
+
 import yt_dlp
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -9,6 +12,25 @@ class BaseDownloadService:
     def __init__(self):
         self.config = DownloadConfig()
         self.file_utils = FileUtils()
+
+    def _sleep_in_range(self, min_seconds: float, max_seconds: float) -> None:
+        lower = max(0.0, min_seconds)
+        upper = max(lower, max_seconds)
+        if upper <= 0:
+            return
+        time.sleep(random.uniform(lower, upper))
+
+    def aguardar_inicio_download(self) -> None:
+        self._sleep_in_range(
+            self.config.pre_download_sleep_min,
+            self.config.pre_download_sleep_max,
+        )
+
+    def aguardar_retry_download(self) -> None:
+        self._sleep_in_range(
+            self.config.retry_sleep_min,
+            self.config.retry_sleep_max,
+        )
 
     def formatar_erro_download(self, error: Exception) -> str:
         message = str(error)

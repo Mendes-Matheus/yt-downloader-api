@@ -1,7 +1,6 @@
-import time
-import random
 from pathlib import Path
 from typing import Dict, Any
+from uuid import uuid4
 
 import yt_dlp
 
@@ -28,6 +27,22 @@ class AudioService(BaseDownloadService):
         if quality_value in allowed_values:
             return quality_value
         return "192"
+
+    def _get_audio_format_selectors(self, qualidade_audio: str) -> list[str]:
+        bitrate = int(self._normalizar_qualidade_audio(qualidade_audio))
+        capped_source_bitrate = min(bitrate, 192)
+
+        return [
+            (
+                f"bestaudio[abr<={capped_source_bitrate}][ext=m4a]/"
+                f"bestaudio[abr<={capped_source_bitrate}][ext=mp4]/"
+                f"bestaudio[abr<={capped_source_bitrate}]/"
+                "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio/best"
+            ),
+            "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio/best",
+            "bestaudio/best",
+            "18/bestaudio/best",
+        ]
 
     def _configurar_opcoes_audio(
         self,
@@ -64,7 +79,8 @@ class AudioService(BaseDownloadService):
         )
         return any(marker in message for marker in markers)
 
-    def _build_audio_attempts(self) -> list[Dict[str, Any]]:
+    def _build_audio_attempts(self, qualidade_audio: str) -> list[Dict[str, Any]]:
+        format_selectors = self._get_audio_format_selectors(qualidade_audio)
         default_clients = self.config.player_clients
         fallback_clients = self.config.player_clients_fallback
         has_cookies = self.config.has_valid_cookie_file()
@@ -73,7 +89,7 @@ class AudioService(BaseDownloadService):
             {
                 "player_clients": default_clients,
                 "use_cookies": True,
-                "format_selector": "bestaudio/best",
+                "format_selector": format_selectors[0],
             }
         ]
 
@@ -82,7 +98,7 @@ class AudioService(BaseDownloadService):
                 {
                     "player_clients": fallback_clients,
                     "use_cookies": True,
-                    "format_selector": "bestaudio/best",
+                    "format_selector": format_selectors[0],
                 }
             )
 
@@ -91,17 +107,18 @@ class AudioService(BaseDownloadService):
                 {
                     "player_clients": fallback_clients,
                     "use_cookies": False,
-                    "format_selector": "bestaudio/best",
+                    "format_selector": format_selectors[0],
                 }
             )
 
-        attempts.append(
-            {
-                "player_clients": fallback_clients,
-                "use_cookies": False if has_cookies else True,
-                "format_selector": "18/bestaudio/best",
-            }
-        )
+        for selector in format_selectors[1:]:
+            attempts.append(
+                {
+                    "player_clients": fallback_clients,
+                    "use_cookies": False if has_cookies else True,
+                    "format_selector": selector,
+                }
+            )
 
         deduped_attempts: list[Dict[str, Any]] = []
         seen: set[tuple[tuple[str, ...], bool, str]] = set()
@@ -122,12 +139,12 @@ class AudioService(BaseDownloadService):
         """Baixa áudio para arquivo temporário"""
         self.audio_temp_dir.mkdir(exist_ok=True)
 
-        temp_basename = f"temp_{int(time.time())}"
+        temp_basename = f"temp_{uuid4().hex}"
         temp_mp3_path = self.audio_temp_dir / f"{temp_basename}.mp3"
         last_error: Exception | None = None
-        attempts = self._build_audio_attempts()
+        attempts = self._build_audio_attempts(qualidade_audio)
 
-        time.sleep(random.uniform(1, 2))
+        self.aguardar_inicio_download()
 
         for attempt_index, attempt in enumerate(attempts):
             opcoes = self._configurar_opcoes_audio(
@@ -175,7 +192,7 @@ class AudioService(BaseDownloadService):
 
                 has_next_attempt = attempt_index < (len(attempts) - 1)
                 if has_next_attempt and self._is_http_403_error(error):
-                    time.sleep(random.uniform(0.4, 1.2))
+                    self.aguardar_retry_download()
                     continue
                 break
 

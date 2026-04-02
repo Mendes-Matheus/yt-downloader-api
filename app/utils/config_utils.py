@@ -31,8 +31,29 @@ class DownloadConfig:
             ["mweb", "tv", "ios", "web"],
         )
         self.player_skip = self._parse_csv_env("YT_DLP_PLAYER_SKIP", ["webpage"])
-        self.sleep_interval_requests = self._parse_float_env("YT_DLP_SLEEP_INTERVAL_REQUESTS", 0.5)
-        self.max_sleep_interval_requests = self._parse_float_env("YT_DLP_MAX_SLEEP_INTERVAL_REQUESTS", 1.5)
+        self.sleep_interval_requests = self._parse_float_env("YT_DLP_SLEEP_INTERVAL_REQUESTS", 0.0)
+        self.max_sleep_interval_requests = self._parse_float_env("YT_DLP_MAX_SLEEP_INTERVAL_REQUESTS", 0.0)
+        self.pre_download_sleep_min = self._parse_float_env("YT_DLP_PRE_DOWNLOAD_SLEEP_MIN", 0.0)
+        self.pre_download_sleep_max = self._parse_float_env("YT_DLP_PRE_DOWNLOAD_SLEEP_MAX", 0.0)
+        self.retry_sleep_min = self._parse_float_env("YT_DLP_RETRY_SLEEP_MIN", 0.2)
+        self.retry_sleep_max = self._parse_float_env("YT_DLP_RETRY_SLEEP_MAX", 0.6)
+        self.concurrent_fragment_downloads = self._parse_int_env(
+            "YT_DLP_CONCURRENT_FRAGMENT_DOWNLOADS",
+            4,
+            minimum=1,
+        )
+        self.rate_limit_bytes = self._parse_int_env("YT_DLP_RATELIMIT_BYTES", 0)
+        self.throttled_rate_limit_bytes = self._parse_int_env(
+            "YT_DLP_THROTTLED_RATELIMIT_BYTES",
+            0,
+        )
+
+        if self.max_sleep_interval_requests < self.sleep_interval_requests:
+            self.max_sleep_interval_requests = self.sleep_interval_requests
+        if self.pre_download_sleep_max < self.pre_download_sleep_min:
+            self.pre_download_sleep_max = self.pre_download_sleep_min
+        if self.retry_sleep_max < self.retry_sleep_min:
+            self.retry_sleep_max = self.retry_sleep_min
 
         # ── Segurança ─────────────────────────────────────────────────────────
         # Token que a Vercel envia em X-Internal-Token
@@ -62,6 +83,18 @@ class DownloadConfig:
         try:
             parsed = float(raw_value)
             if parsed < 0:
+                return default
+            return parsed
+        except ValueError:
+            return default
+
+    def _parse_int_env(self, name: str, default: int, minimum: int = 0) -> int:
+        raw_value = os.getenv(name, "").strip()
+        if not raw_value:
+            return default
+        try:
+            parsed = int(raw_value)
+            if parsed < minimum:
                 return default
             return parsed
         except ValueError:
@@ -165,6 +198,7 @@ class DownloadConfig:
         opts = {
             'outtmpl': str(pasta / '%(title)s.%(ext)s'),
             'merge_output_format': 'mp4',
+            'noplaylist': True,
             'http_headers': {
                 'User-Agent': random.choice(self.user_agents),
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -178,14 +212,21 @@ class DownloadConfig:
             'fragment_retries': 10,
             'skip_unavailable_fragments': True,
             'continue_dl': True,
-            'ratelimit': 1048576,
-            'throttledratelimit': 524288,
             'extractor_retries': 3,
+            'concurrent_fragment_downloads': self.concurrent_fragment_downloads,
             'js_runtimes': {self.js_runtime: {}},
-            'sleep_interval_requests': self.sleep_interval_requests,
-            'max_sleep_interval_requests': self.max_sleep_interval_requests,
             'extractor_args': self._build_youtube_extractor_args(player_clients, player_skip),
         }
+
+        if self.rate_limit_bytes > 0:
+            opts['ratelimit'] = self.rate_limit_bytes
+
+        if self.throttled_rate_limit_bytes > 0:
+            opts['throttledratelimit'] = self.throttled_rate_limit_bytes
+
+        if self.sleep_interval_requests > 0 or self.max_sleep_interval_requests > 0:
+            opts['sleep_interval_requests'] = self.sleep_interval_requests
+            opts['max_sleep_interval_requests'] = self.max_sleep_interval_requests
 
         if self.enable_remote_ejs:
             opts['remote_components'] = {'ejs:github'}

@@ -1,7 +1,6 @@
-import time
-import random
 from pathlib import Path
 from typing import Dict, Any
+from uuid import uuid4
 
 import yt_dlp
 
@@ -164,11 +163,11 @@ class VideoService(BaseDownloadService):
         """Baixa vídeo para arquivo temporário"""
         self.video_temp_dir.mkdir(exist_ok=True)
 
-        temp_basename = f"temp_{int(time.time())}"
+        temp_basename = f"temp_{uuid4().hex}"
         attempts = self._build_video_attempts(qualidade)
         last_error: Exception | None = None
 
-        time.sleep(random.uniform(1, 2))
+        self.aguardar_inicio_download()
 
         for attempt_index, attempt in enumerate(attempts):
             opcoes = self._configurar_opcoes_video(
@@ -217,7 +216,7 @@ class VideoService(BaseDownloadService):
 
                 has_next_attempt = attempt_index < (len(attempts) - 1)
                 if has_next_attempt and self._is_http_403_error(error):
-                    time.sleep(random.uniform(0.4, 1.2))
+                    self.aguardar_retry_download()
                     continue
                 break
 
