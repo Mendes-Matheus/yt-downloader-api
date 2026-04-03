@@ -5,12 +5,12 @@ import yt_dlp
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from app.utils.config_utils import DownloadConfig
+from app.utils.config_utils import get_config
 from app.utils.file_utils import FileUtils
 
 class BaseDownloadService:
     def __init__(self):
-        self.config = DownloadConfig()
+        self.config = get_config()
         self.file_utils = FileUtils()
 
     def _sleep_in_range(self, min_seconds: float, max_seconds: float) -> None:

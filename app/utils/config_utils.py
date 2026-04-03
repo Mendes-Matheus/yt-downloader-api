@@ -3,9 +3,12 @@ import tempfile
 import random
 import os
 import base64
+import time
 from typing import Dict
 
 class DownloadConfig:
+    _COOKIE_CACHE_TTL = 300
+
     def __init__(self):
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -18,7 +21,8 @@ class DownloadConfig:
         self.temp_dir = Path(tempfile.gettempdir()) / "yt_downloader"
         self.temp_dir.mkdir(exist_ok=True)
         self.project_root = Path(__file__).resolve().parents[2]
-        self.cookie_file = self._resolve_cookie_file()
+        self._cookie_file_cache: Path | None = None
+        self._cookie_file_resolved_at: float = 0.0
         self.js_runtime = (os.getenv("YT_DLP_JS_RUNTIME", "node").strip().lower() or "node")
         self.enable_remote_ejs = os.getenv("YT_DLP_REMOTE_EJS", "1").strip() not in {"0", "false", "False"}
         self.visitor_data = os.getenv("YT_DLP_VISITOR_DATA", "").strip()
@@ -67,6 +71,21 @@ class DownloadConfig:
         else:
             # Em desenvolvimento, aceita tudo — loga aviso no startup
             self.allowed_origins = ["*"]
+
+    @property
+    def cookie_file(self) -> Path | None:
+        now = time.monotonic()
+        if (
+            self._cookie_file_resolved_at == 0.0
+            or self._cookie_file_cache is None
+            or (now - self._cookie_file_resolved_at) >= self._COOKIE_CACHE_TTL
+        ):
+            self._cookie_file_cache = self._resolve_cookie_file()
+            self._cookie_file_resolved_at = now
+        return self._cookie_file_cache
+
+    def invalidate_cookie_cache(self) -> None:
+        self._cookie_file_resolved_at = 0.0
 
     def _parse_csv_env(self, name: str, default: list[str]) -> list[str]:
         raw_value = os.getenv(name, "").strip()
@@ -235,3 +254,11 @@ class DownloadConfig:
             opts['cookiefile'] = str(self.cookie_file)
 
         return opts
+    
+_instance: DownloadConfig | None = None
+
+def get_config() -> DownloadConfig:
+    global _instance
+    if _instance is None:
+        _instance = DownloadConfig()
+    return _instance

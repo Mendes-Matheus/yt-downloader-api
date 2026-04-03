@@ -3,6 +3,7 @@ import logging
 import re
 from pathlib import Path
 
+from app.utils.config_utils import get_config
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -13,7 +14,6 @@ if __package__ in (None, ""):
 from app.routers import video, audio, info, health
 from app.middleware.auth import InternalTokenMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.utils.config_utils import DownloadConfig
 from app.utils.logger import get_logger
 
 # ── Logging estruturado ───────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ class NormalizePathMiddleware:
         await self.app(scope, receive, send)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-config = DownloadConfig()
+config = get_config()
 
 app = FastAPI(
     title="YouTube Downloader – Serviço dedicado",

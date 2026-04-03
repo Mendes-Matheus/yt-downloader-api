@@ -17,6 +17,8 @@ PROFILE="${2:-Default}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COOKIES_FILE="${SCRIPT_DIR}/cookies.txt"
 CONTAINER_NAME="${CONTAINER_NAME:-downloader}"   # nome do container docker-compose
+# Valida variáveis obrigatórias antes de qualquer operação
+: "${INTERNAL_API_TOKEN:?Variável INTERNAL_API_TOKEN não definida}"
 
 log() { echo "[$(date '+%Y-%m-%dT%H:%M:%S')] $*"; }
 
@@ -47,9 +49,13 @@ log "Cookies válidos. $(grep -c 'youtube\.com' "$COOKIES_FILE") cookies do YouT
 # ── 4. Reiniciar container para recarregar o volume montado ──────────────────
 if command -v docker &>/dev/null; then
   if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    log "Reiniciando container '$CONTAINER_NAME'…"
-    docker restart "$CONTAINER_NAME"
-    log "Container reiniciado com sucesso."
+    log "Recarregando cookies via API (POST /admin/reload-cookies)…"
+    if RESP="$(curl -sf -X POST "http://localhost:8000/admin/reload-cookies" -H "X-Internal-Token: ${INTERNAL_API_TOKEN:?Variável INTERNAL_API_TOKEN não definida}")"; then
+      log "Cookies recarregados com sucesso. Resposta: ${RESP}"
+    else
+      log "ERRO: Falha ao recarregar cookies via API."
+      exit 1
+    fi
   else
     log "AVISO: Container '$CONTAINER_NAME' não está rodando. Pulando reinício."
   fi

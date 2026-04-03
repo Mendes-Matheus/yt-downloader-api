@@ -4,12 +4,13 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from app.utils.config_utils import DownloadConfig
+from app.utils.config_utils import get_config
 from app.utils.logger import get_logger
 
 router = APIRouter(tags=["observability"])
 logger = get_logger(__name__)
-_config = DownloadConfig()
+
+config = get_config()
 
 
 @router.get("/health", summary="Liveness – o processo está vivo?")
@@ -65,7 +66,7 @@ async def ready():
         ok = False
 
     # Cookies (aviso apenas)
-    if _config.has_valid_cookie_file():
+    if config.has_valid_cookie_file():
         checks["cookies"] = "ok"
     else:
         checks["cookies"] = "warn: sem cookies válidos"
@@ -76,3 +77,14 @@ async def ready():
         status_code=status_code,
         content={"status": "ready" if ok else "degraded", "checks": checks},
     )
+
+
+@router.post("/admin/reload-cookies", include_in_schema=False)
+async def reload_cookies():
+    config.invalidate_cookie_cache()
+    cookie_file = config.cookie_file
+    return {
+        "cookie_file": str(cookie_file) if cookie_file else "",
+        "valid": config.has_valid_cookie_file(),
+        "source": config.describe_cookie_source(),
+    }
