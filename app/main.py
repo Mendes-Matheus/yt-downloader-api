@@ -64,8 +64,10 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Internal-Token"],
 )
 
+# ── Rate limit por IP (usa defaults definidos em app/middleware/rate_limit.py) ─
+# app.add_middleware(RateLimitMiddleware)
 # ── Rate limit por IP ─────────────────────────────────────────────────────────
-app.add_middleware(RateLimitMiddleware, max_requests=10, window_seconds=60)
+app.add_middleware(RateLimitMiddleware, max_requests=1, window_seconds=3600)
 
 # ── Autenticação token interno (protege /download/* e /info/*) ────────────────
 app.add_middleware(InternalTokenMiddleware, token=config.internal_token)
