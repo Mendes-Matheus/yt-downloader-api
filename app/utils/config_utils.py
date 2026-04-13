@@ -8,6 +8,7 @@ from typing import Dict
 
 class DownloadConfig:
     _COOKIE_CACHE_TTL = 300
+    _SUPPORTED_JS_RUNTIMES = {"node", "deno", "bun", "quickjs"}
 
     def __init__(self):
         self.user_agents = [
@@ -23,7 +24,7 @@ class DownloadConfig:
         self.project_root = Path(__file__).resolve().parents[2]
         self._cookie_file_cache: Path | None = None
         self._cookie_file_resolved_at: float = 0.0
-        self.js_runtime = (os.getenv("YT_DLP_JS_RUNTIME", "node").strip().lower() or "node")
+        self.js_runtime = self._parse_js_runtime_env()
         self.enable_remote_ejs = os.getenv("YT_DLP_REMOTE_EJS", "1").strip() not in {"0", "false", "False"}
         self.visitor_data = os.getenv("YT_DLP_VISITOR_DATA", "").strip()
         self.player_clients = self._parse_csv_env(
@@ -118,6 +119,17 @@ class DownloadConfig:
             return parsed
         except ValueError:
             return default
+
+    def _parse_js_runtime_env(self) -> str:
+        raw_value = os.getenv("YT_DLP_JS_RUNTIME", "").strip().lower()
+        if not raw_value:
+            return "node"
+
+        # Accept values like "node --" by keeping only the runtime name token.
+        normalized_runtime = raw_value.split()[0]
+        if normalized_runtime not in self._SUPPORTED_JS_RUNTIMES:
+            return "node"
+        return normalized_runtime
 
     def _resolve_cookie_file(self) -> Path | None:
         cookie_file = os.getenv("YT_DLP_COOKIEFILE")
