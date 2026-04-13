@@ -40,9 +40,6 @@ async def download_video(request_body: DownloadRequest, request: Request):
                 path=resultado["filepath"],
                 filename=resultado["filename"],
                 media_type=mimetypes.guess_type(resultado["filename"])[0] or "application/octet-stream",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{resultado["filename"]}"'
-                },
             )
 
         raise Exception("Arquivo não encontrado após download")

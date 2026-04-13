@@ -39,9 +39,6 @@ async def download_audio(request_body: AudioRequest, request: Request):
                 path=resultado["filepath"],
                 filename=resultado["filename"],
                 media_type="audio/mpeg",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{resultado["filename"]}"'
-                },
             )
 
         raise Exception("Arquivo não encontrado após download")
