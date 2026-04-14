@@ -3,6 +3,9 @@ services:
     build: .
     ports:
       - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
 
     # ── Volumes persistentes ──────────────────────────────────────────────────
     volumes:
@@ -18,6 +21,7 @@ services:
 
     environment:
       - PYTHONPATH=/app
+      - RATE_LIMIT_REDIS_URL=${RATE_LIMIT_REDIS_URL:-redis://redis:6379/0}
 
     # ── Reinício automático ───────────────────────────────────────────────────
     restart: unless-stopped
@@ -37,5 +41,18 @@ services:
           memory: 1g
           cpus: "1.0"
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   yt_tmp:
+  redis_data:
