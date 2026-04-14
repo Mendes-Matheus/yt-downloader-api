@@ -106,13 +106,18 @@ class RateLimitMiddleware:
         window_start_ms = now_ms - self._window_ms
         member = f"{now_ms}-{uuid.uuid4().hex}"
 
-        pipeline = self._redis.pipeline(transaction=True)
+        pipeline = self._redis.pipeline(transaction=False)
         pipeline.zremrangebyscore(key, 0, window_start_ms)
         pipeline.zadd(key, {member: now_ms})
         pipeline.zcard(key)
         pipeline.expire(key, max(self._window + 1, 1))
         pipeline.zrange(key, 0, 0, withscores=True)
         _, _, current_count, _, oldest_entries = await pipeline.execute()
+
+        try:
+            _, _, current_count, _, oldest_entries = await pipeline.execute()
+        except Exception:
+            raise  # já tratado no fail-open (middleware)
 
         oldest_score = now_ms
         if oldest_entries:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from redis.asyncio import Redis
+import ssl
+
 import os
 from functools import lru_cache
 
@@ -22,12 +25,20 @@ def get_redis_client() -> Redis | None:
     if Redis is None or not redis_url:
         return None
 
+    is_upstash = "upstash.io" in redis_url
+
     return Redis.from_url(
         redis_url,
         encoding="utf-8",
         decode_responses=True,
-        socket_connect_timeout=0.5,
-        socket_timeout=0.5,
-        health_check_interval=30,
+
+        # Upstash exige SSL
+        ssl=True if redis_url.startswith("rediss://") or is_upstash else False,
+        ssl_cert_reqs=ssl.CERT_NONE if is_upstash else None,  # evita problema comum com Upstash
+
+        # ⚡ tuning importante pra latência externa
+        socket_connect_timeout=1.0,
+        socket_timeout=1.0,
+        health_check_interval=15,
         retry_on_timeout=True,
     )
