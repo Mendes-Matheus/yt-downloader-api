@@ -16,16 +16,16 @@ redis.call("ZADD", key, now, member)
 -- Conta
 local count = redis.call("ZCARD", key)
 
--- TTL
+-- TTL (somente quando cria a chave)
 -- redis.call("PEXPIRE", key, window)
-if redis.call("TTL", key) < 0 then
+if count == 1 then
     redis.call("PEXPIRE", key, window)
 end
 
 -- Pega mais antigo
--- local oldest = redis.call("ZRANGE", key, 0, 0, "WITHSCORES")
-local index = count - limit
-local ref = redis.call("ZRANGE", key, index, index, "WITHSCORES")
+local oldest = redis.call("ZRANGE", key, 0, 0, "WITHSCORES")
+-- local index = count - limit
+-- local ref = redis.call("ZRANGE", key, index, index, "WITHSCORES")
 
 local oldest_score = now
 if oldest[2] then
