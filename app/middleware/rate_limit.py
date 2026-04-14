@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 import time
 import uuid
+from functools import lru_cache
+from pathlib import Path
 from typing import Final
 
 from starlette.datastructures import Headers
@@ -21,6 +23,14 @@ _RESPONSE_HEADER_NAMES: Final[tuple[bytes, bytes, bytes]] = (
     b"x-ratelimit-remaining",
     b"x-ratelimit-reset",
 )
+_RATE_LIMIT_SCRIPT_PATH: Final[Path] = (
+    Path(__file__).resolve().parents[1] / "infrastructure" / "redis_rate_limit.lua"
+)
+
+
+@lru_cache(maxsize=1)
+def _get_rate_limit_script() -> str:
+    return _RATE_LIMIT_SCRIPT_PATH.read_text(encoding="utf-8")
 
 
 class RateLimitMiddleware:
@@ -51,6 +61,7 @@ class RateLimitMiddleware:
         self._redis_url = get_rate_limit_redis_url()
         self._logged_missing_redis_config = False
         self._logged_redis_failure = False
+        self._script_sha: str | None = None
 
     def _get_identifier(self, headers: Headers, scope) -> str:
         api_key = headers.get("X-API-Key")
@@ -103,44 +114,52 @@ class RateLimitMiddleware:
         if self._redis is None:
             raise RuntimeError("Redis client unavailable")
 
-        window_start_ms = now_ms - self._window_ms
         member = f"{now_ms}-{uuid.uuid4().hex}"
+        script = _get_rate_limit_script()
 
-        pipeline = self._redis.pipeline(transaction=False)
-        pipeline.zremrangebyscore(key, 0, window_start_ms)
-        pipeline.zadd(key, {member: now_ms})
-        pipeline.zcard(key)
-        pipeline.expire(key, max(self._window + 1, 1))
-        pipeline.zrange(key, 0, 0, withscores=True)
-        _, _, current_count, _, oldest_entries = await pipeline.execute()
+        if self._script_sha is None:
+            self._script_sha = await self._redis.script_load(script)
 
         try:
-            _, _, current_count, _, oldest_entries = await pipeline.execute()
-        except Exception:
-            raise  # já tratado no fail-open (middleware)
+            raw_result = await self._redis.evalsha(
+                self._script_sha,
+                1,
+                key,
+                now_ms,
+                self._window_ms,
+                self._max,
+                member,
+            )
+        except Exception as exc:
+            if "NOSCRIPT" not in str(exc).upper():
+                raise
 
-        oldest_score = now_ms
-        if oldest_entries:
-            oldest_score = int(oldest_entries[0][1])
+            self._script_sha = await self._redis.script_load(script)
+            raw_result = await self._redis.evalsha(
+                self._script_sha,
+                1,
+                key,
+                now_ms,
+                self._window_ms,
+                self._max,
+                member,
+            )
 
-        if current_count > self._max:
-            rollback = self._redis.pipeline(transaction=True)
-            rollback.zrem(key, member)
-            rollback.expire(key, max(self._window + 1, 1))
-            await rollback.execute()
+        allowed, remaining, oldest_score, retry_after = (int(value) for value in raw_result)
+        reset_at = math.ceil((oldest_score + self._window_ms) / 1000)
 
-            retry_after = max(1, math.ceil(((oldest_score + self._window_ms) - now_ms) / 1000))
+        if not allowed:
             return {
                 "allowed": False,
                 "remaining": 0,
-                "reset_at": math.ceil((oldest_score + self._window_ms) / 1000),
-                "retry_after": retry_after,
+                "reset_at": reset_at,
+                "retry_after": max(retry_after, 1),
             }
 
         return {
             "allowed": True,
-            "remaining": max(self._max - current_count, 0),
-            "reset_at": math.ceil((oldest_score + self._window_ms) / 1000),
+            "remaining": max(remaining, 0),
+            "reset_at": reset_at,
             "retry_after": 0,
         }
 
