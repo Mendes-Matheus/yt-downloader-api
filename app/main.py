@@ -13,7 +13,7 @@ if __package__ in (None, ""):
 
 from app.routers import video, audio, info, health
 from app.middleware.auth import InternalTokenMiddleware
-from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.rate_limit import LUA_RATE_LIMIT_SCRIPT, RateLimitMiddleware
 from app.utils.logger import get_logger
 
 # ── Logging estruturado ───────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ app.add_middleware(
 # ── Rate limit por IP (usa defaults definidos em app/middleware/rate_limit.py) ─
 # app.add_middleware(RateLimitMiddleware)
 # ── Rate limit por IP ─────────────────────────────────────────────────────────
-app.add_middleware(RateLimitMiddleware, max_requests=1, window_seconds=3600)
+app.add_middleware(RateLimitMiddleware, max_requests=1, window_seconds=180)
 
 # ── Autenticação token interno (protege /download/* e /info/*) ────────────────
 app.add_middleware(InternalTokenMiddleware, token=config.internal_token)
@@ -123,6 +123,9 @@ async def startup_event():
         logger.warning('"INTERNAL_API_TOKEN não definido — rotas protegidas estarão ABERTAS"')
     else:
         logger.info('"Serviço iniciado com token interno configurado"')
+
+    if LUA_RATE_LIMIT_SCRIPT is None:
+        logger.warning('"Rate limit Lua script indisponível — middleware ficará em fail-open"')
 
     logger.info('"Cookies válidos: %s"', config.has_valid_cookie_file())
     logger.info('"Fonte de cookies: %s"', config.describe_cookie_source())

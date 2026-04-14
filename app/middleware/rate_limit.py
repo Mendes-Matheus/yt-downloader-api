@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import math
+import os
 import time
 import uuid
-from functools import lru_cache
 from pathlib import Path
 from typing import Final
 
@@ -23,14 +24,16 @@ _RESPONSE_HEADER_NAMES: Final[tuple[bytes, bytes, bytes]] = (
     b"x-ratelimit-remaining",
     b"x-ratelimit-reset",
 )
+_DEFAULT_ENVIRONMENT: Final[str] = "dev"
+_IDENTIFIER_HASH_LENGTH: Final[int] = 16
 _RATE_LIMIT_SCRIPT_PATH: Final[Path] = (
     Path(__file__).resolve().parents[1] / "infrastructure" / "redis_rate_limit.lua"
 )
 
-
-@lru_cache(maxsize=1)
-def _get_rate_limit_script() -> str:
-    return _RATE_LIMIT_SCRIPT_PATH.read_text(encoding="utf-8")
+try:
+    LUA_RATE_LIMIT_SCRIPT: str | None = _RATE_LIMIT_SCRIPT_PATH.read_text(encoding="utf-8")
+except OSError:
+    LUA_RATE_LIMIT_SCRIPT = None
 
 
 class RateLimitMiddleware:
@@ -47,7 +50,7 @@ class RateLimitMiddleware:
         self,
         app,
         max_requests: int = 1,
-        window_seconds: int = 3600,
+        window_seconds: int = 180,
         scope_prefix: str = "global",
         by_route: bool = False,
     ):
@@ -57,26 +60,31 @@ class RateLimitMiddleware:
         self._window_ms = window_seconds * 1000
         self._scope_prefix = scope_prefix
         self._by_route = by_route
+        self._environment = os.getenv("ENV", _DEFAULT_ENVIRONMENT).strip() or _DEFAULT_ENVIRONMENT
         self._redis = get_redis_client()
         self._redis_url = get_rate_limit_redis_url()
         self._logged_missing_redis_config = False
         self._logged_redis_failure = False
+        self._logged_missing_script = False
         self._script_sha: str | None = None
+
+    def _hash_identifier(self, identifier: str) -> str:
+        return hashlib.sha256(identifier.encode("utf-8")).hexdigest()[:_IDENTIFIER_HASH_LENGTH]
 
     def _get_identifier(self, headers: Headers, scope) -> str:
         api_key = headers.get("X-API-Key")
         if api_key:
-            return f"api_key:{api_key.strip()}"
+            return self._hash_identifier(f"api_key:{api_key.strip()}")
 
         forwarded = headers.get("X-Forwarded-For")
         if forwarded:
-            return f"ip:{forwarded.split(',')[0].strip()}"
+            return self._hash_identifier(f"ip:{forwarded.split(',')[0].strip()}")
 
         client = scope.get("client")
         if client and client[0]:
-            return f"ip:{client[0]}"
+            return self._hash_identifier(f"ip:{client[0]}")
 
-        return "unknown"
+        return f"unknown:{uuid.uuid4().hex}"
 
     def _is_exempt(self, path: str) -> bool:
         return any(path.startswith(p) for p in _EXEMPT_PREFIXES)
@@ -86,7 +94,7 @@ class RateLimitMiddleware:
         if self._by_route:
             normalized_path = path.strip("/") or "root"
             scope_key = f"{scope_key}:{normalized_path.replace('/', ':')}"
-        return f"{_RATE_LIMIT_NAMESPACE}:{scope_key}:{identifier}"
+        return f"{self._environment}:{_RATE_LIMIT_NAMESPACE}:{scope_key}:{identifier}"
 
     def _build_headers(self, limit: int, remaining: int, reset_at: int) -> list[tuple[bytes, bytes]]:
         return [
@@ -113,12 +121,13 @@ class RateLimitMiddleware:
     async def _evaluate_request(self, key: str, now_ms: int) -> dict[str, int | bool]:
         if self._redis is None:
             raise RuntimeError("Redis client unavailable")
+        if LUA_RATE_LIMIT_SCRIPT is None:
+            raise RuntimeError(f"Rate limit Lua script unavailable at {_RATE_LIMIT_SCRIPT_PATH}")
 
         member = f"{now_ms}-{uuid.uuid4().hex}"
-        script = _get_rate_limit_script()
 
         if self._script_sha is None:
-            self._script_sha = await self._redis.script_load(script)
+            self._script_sha = await self._redis.script_load(LUA_RATE_LIMIT_SCRIPT)
 
         try:
             raw_result = await self._redis.evalsha(
@@ -134,7 +143,7 @@ class RateLimitMiddleware:
             if "NOSCRIPT" not in str(exc).upper():
                 raise
 
-            self._script_sha = await self._redis.script_load(script)
+            self._script_sha = await self._redis.script_load(LUA_RATE_LIMIT_SCRIPT)
             raw_result = await self._redis.evalsha(
                 self._script_sha,
                 1,
@@ -198,7 +207,14 @@ class RateLimitMiddleware:
                 int(result["reset_at"]),
             )
         except Exception as exc:
-            if not self._redis_url:
+            if LUA_RATE_LIMIT_SCRIPT is None:
+                if not self._logged_missing_script:
+                    logger.warning(
+                        '"rate_limit_disabled":"lua_script_unavailable","script_path":"%s"',
+                        str(_RATE_LIMIT_SCRIPT_PATH),
+                    )
+                    self._logged_missing_script = True
+            elif not self._redis_url:
                 if not self._logged_missing_redis_config:
                     logger.warning(
                         '"rate_limit_disabled":"redis_not_configured","path":"%s"',

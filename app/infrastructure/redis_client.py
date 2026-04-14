@@ -30,8 +30,7 @@ def get_redis_client() -> Redis | None:
         redis_url,
         encoding="utf-8",
         decode_responses=True,
-        # ssl_cert_reqs=ssl.CERT_NONE if is_upstash else None,
-        ssl_cert_reqs=ssl.CERT_NONE if is_upstash else ssl.CERT_REQUIRED
+        ssl_cert_reqs=ssl.CERT_NONE if is_upstash else ssl.CERT_REQUIRED,
         socket_connect_timeout=3.0,
         socket_timeout=3.0,
         health_check_interval=15,

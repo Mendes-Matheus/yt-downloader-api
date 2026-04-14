@@ -17,10 +17,15 @@ redis.call("ZADD", key, now, member)
 local count = redis.call("ZCARD", key)
 
 -- TTL
-redis.call("EXPIRE", key, math.ceil(window / 1000))
+-- redis.call("PEXPIRE", key, window)
+if redis.call("TTL", key) < 0 then
+    redis.call("PEXPIRE", key, window)
+end
 
 -- Pega mais antigo
-local oldest = redis.call("ZRANGE", key, 0, 0, "WITHSCORES")
+-- local oldest = redis.call("ZRANGE", key, 0, 0, "WITHSCORES")
+local index = count - limit
+local ref = redis.call("ZRANGE", key, index, index, "WITHSCORES")
 
 local oldest_score = now
 if oldest[2] then
@@ -32,6 +37,9 @@ if count > limit then
     redis.call("ZREM", key, member)
 
     local retry_after = math.ceil(((oldest_score + window) - now) / 1000)
+    if retry_after < 1 then
+        retry_after = 1
+    end
 
     return {0, count - 1, oldest_score, retry_after}
 end
