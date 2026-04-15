@@ -35,4 +35,6 @@ def get_redis_client() -> Redis | None:
         socket_timeout=3.0,
         health_check_interval=15,
         retry_on_timeout=True,
+        max_connections=10,      # Força o reuso. Se vierem 20 reqs, elas usam essas 10 conexões em fila, evitando overhead de rede.
+        socket_keepalive=True,   # Ajuda a evitar que o Upstash ou o firewall da OCI fechem conexões "quietas" precocemente.
     )
