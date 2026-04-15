@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
 
 class DownloadRequest(BaseModel):
     url: str
@@ -8,6 +7,24 @@ class DownloadRequest(BaseModel):
 class AudioRequest(BaseModel):
     url: str
     qualidade_audio: str = "192"
+
+
+class AudioEnqueueResponse(BaseModel):
+    task_id: str
+    status: str
+    status_url: str
+    download_url: str
+
+
+class AudioStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    stage: str
+    ready: bool
+    error: str | None = None
+    filename: str | None = None
+    titulo: str | None = None
+    tamanho: int | None = None
 
 class DownloadResult(BaseModel):
     status: str

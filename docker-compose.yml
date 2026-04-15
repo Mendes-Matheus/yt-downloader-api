@@ -41,6 +41,19 @@ services:
           memory: 1g
           cpus: "1.0"
 
+  worker:
+    build: .
+    command: ["python", "-m", "app.workers.worker"]
+    volumes:
+      - ./cookies.txt:/app/cookies.txt:ro
+      - yt_tmp:/tmp/yt_downloader
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - RATE_LIMIT_REDIS_URL=${RATE_LIMIT_REDIS_URL:-redis://redis:6379/0}
+    restart: unless-stopped
+
   # redis:
   #   image: redis:7-alpine
   #   restart: unless-stopped

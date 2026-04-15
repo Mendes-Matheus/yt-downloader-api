@@ -72,6 +72,24 @@ class DownloadConfig:
         else:
             # Em desenvolvimento, aceita tudo — loga aviso no startup
             self.allowed_origins = ["*"]
+        self.rate_limit_max_requests = self._parse_int_env("RATE_LIMIT_MAX_REQUESTS", 5, minimum=1)
+        self.rate_limit_window_seconds = self._parse_int_env("RATE_LIMIT_WINDOW_SECONDS", 180, minimum=1)
+        self.audio_queue_name = os.getenv("AUDIO_QUEUE_NAME", "audio-downloads").strip() or "audio-downloads"
+        self.audio_job_timeout_seconds = self._parse_int_env(
+            "AUDIO_JOB_TIMEOUT_SECONDS",
+            900,
+            minimum=30,
+        )
+        self.audio_result_ttl_seconds = self._parse_int_env(
+            "AUDIO_RESULT_TTL_SECONDS",
+            3600,
+            minimum=60,
+        )
+        self.audio_failure_ttl_seconds = self._parse_int_env(
+            "AUDIO_FAILURE_TTL_SECONDS",
+            86400,
+            minimum=60,
+        )
 
     @property
     def cookie_file(self) -> Path | None:

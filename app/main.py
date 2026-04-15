@@ -67,7 +67,11 @@ app.add_middleware(
 # ── Rate limit por IP (usa defaults definidos em app/middleware/rate_limit.py) ─
 # app.add_middleware(RateLimitMiddleware)
 # ── Rate limit por IP ─────────────────────────────────────────────────────────
-app.add_middleware(RateLimitMiddleware, max_requests=1, window_seconds=180)
+app.add_middleware(
+    RateLimitMiddleware,
+    max_requests=config.rate_limit_max_requests,
+    window_seconds=config.rate_limit_window_seconds,
+)
 
 # ── Autenticação token interno (protege /download/* e /info/*) ────────────────
 app.add_middleware(InternalTokenMiddleware, token=config.internal_token)
@@ -87,6 +91,18 @@ app.add_api_route(
     "//download/audio",
     audio.download_audio,
     methods=["POST"],
+    include_in_schema=False,
+)
+app.add_api_route(
+    "//download/audio/status/{task_id}",
+    audio.get_audio_status,
+    methods=["GET"],
+    include_in_schema=False,
+)
+app.add_api_route(
+    "//download/audio/file/{task_id}",
+    audio.download_audio_file,
+    methods=["GET"],
     include_in_schema=False,
 )
 app.add_api_route(
